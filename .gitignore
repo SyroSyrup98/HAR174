@@ -1,34 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Models / generated ML files
-*.pt
-*.onnx
-*.pkl
-*.joblib
-
-# Runtime logs
-*.log
-experiment_log.txt
-
-# Video / large datasets
-*.mp4
-*.avi
-*.mov
-*.mkv
 data/
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
+experiment_log.txt
+Notes
+landmarks.csv
+requirements.txt
