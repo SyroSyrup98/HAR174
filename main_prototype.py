@@ -1,19 +1,16 @@
 from ultralytics import YOLO
 import cv2
 import mediapipe as mp
-import pyttsx3
+# import pyttsx3
 from datetime import datetime
-
-# =========================
-# YOLO
-# =========================
+import csv
+import os
 
 model = YOLO("yolo26n.pt")
 
-
-# =========================
+# _____________________________________________________________________________________________________________________
 # MediaPipe Hands
-# =========================
+# _____________________________________________________________________________________________________________________
 
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
@@ -25,9 +22,9 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-# # =========================
-# # Voice Alert
-# # =========================
+# _____________________________________________________________________________________________________________________
+# Voice Alert
+# _____________________________________________________________________________________________________________________
 
 # engine = pyttsx3.init()
 
@@ -46,36 +43,84 @@ hands = mp_hands.Hands(
 #     engine.runAndWait()
 
 
-# =========================
-# Event Log
-# =========================
+# _____________________________________________________________________________________________________________________
+# MEDIAPIPE FULL BODY POSE
+# _____________________________________________________________________________________________________________________
 
-log_file = open(
-    "experiment_log.txt",
-    "a",
-    encoding="utf-8"
+mp_pose = mp.solutions.pose
+
+pose = mp_pose.Pose(
+    static_image_mode=False,
+    model_complexity=0,
+    smooth_landmarks=True,
+    enable_segmentation=False,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
 )
 
+# _____________________________________________________________________________________________________________________
+# Event Log
+# _____________________________________________________________________________________________________________________
 
-def log_event(event):
+LOG_FILE = "experiment_log.csv"
+
+if not os.path.exists(LOG_FILE):
+    with open(
+        LOG_FILE,
+        "w",
+        newline="",
+        encoding="utf-8"
+    ) as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "timestamp",
+            "step",
+            "expected",
+            "detected",
+            "event",
+            "status"
+        ])
+    
+def log_event(
+    step,
+    expected,
+    detected,
+    event,
+    status
+):
 
     timestamp = datetime.now().strftime(
         "%Y-%m-%d %H:%M:%S"
     )
 
-    log_file.write(
-        f"{timestamp} | {event}\n"
-    )
+    with open(
+        LOG_FILE,
+        "a",
+        newline="",
+        encoding="utf-8"
+    ) as file:
 
-    log_file.flush()
+        writer = csv.writer(file)
+
+        writer.writerow([
+            timestamp,
+            step,
+            expected,
+            detected,
+            event,
+            status
+        ])
 
     print(
-        f"[{timestamp}] {event}"
+        f"[{timestamp}] "
+        f"STEP {step} | "
+        f"{event} | "
+        f"{status}"
     )
-
-# =========================
+# _____________________________________________________________________________________________________________________
 # Experiment Sequence
-# =========================
+# _____________________________________________________________________________________________________________________
 
 EXPERIMENT_SEQUENCE = [
     "bottle",
@@ -85,45 +130,30 @@ EXPERIMENT_SEQUENCE = [
 
 current_step = 0
 
-# Number of consecutive frames required
-# to confirm an interaction
 interaction_frames = {}
 
 
-# =========================
-# Camera
-# =========================
+camera = cv2.VideoCapture(0)
 
-cap = cv2.VideoCapture(0)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-
-# =========================
-# YOLO frame skipping
-# =========================
 
 frame_count = 0
 last_results = []
 
 
-# =========================
+# _____________________________________________________________________________________________________________________
 # Main Loop
-# =========================
+# _____________________________________________________________________________________________________________________
 
 while True:
 
-    ret, frame = cap.read()
+    ret, frame = camera.read()
 
     if not ret:
         print("Camera error")
         break
-
-
-    # =========================
-    # YOLO object detection
-    # =========================
 
     frame_count += 1
 
@@ -136,15 +166,14 @@ while True:
 
     results = last_results
 
-
-    # =========================
-    # MediaPipe hand detection
-    # =========================
-
     rgb = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
+
+    # _____________________________________________________________________________________________________________________
+    # MediaPipe hand detection
+    # _____________________________________________________________________________________________________________________
 
     hand_results = hands.process(rgb)
 
@@ -165,8 +194,13 @@ while True:
             # Index fingertip
             fingertip = hand.landmark[8]
 
-            hx = int(fingertip.x * w)
-            hy = int(fingertip.y * h)
+            hx = int(
+                fingertip.x * w
+            )
+
+            hy = int(
+                fingertip.y * h
+            )
 
             hand_points.append(
                 (hx, hy)
@@ -180,14 +214,52 @@ while True:
                 -1
             )
 
+    # _____________________________________________________________________________________________________________________
+    # FULL BODY POSE
+    # _____________________________________________________________________________________________________________________
 
-    # =========================
+    pose_results = pose.process(rgb)
+
+
+    if pose_results.pose_landmarks:
+
+        mp_draw.draw_landmarks(
+            frame,
+            pose_results.pose_landmarks,
+            mp_pose.POSE_CONNECTIONS
+        )
+
+        cv2.putText(
+            frame,
+            "BODY POSE: DETECTED",
+            (30, 185),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 255, 255),
+            2
+        )
+
+    else:
+
+        cv2.putText(
+            frame,
+            "BODY POSE: NOT DETECTED",
+            (30, 185),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 0, 255),
+            2
+        )
+
+    # _____________________________________________________________________________________________________________________
     # Current experiment step
-    # =========================
+    # _____________________________________________________________________________________________________________________
 
     if current_step < len(EXPERIMENT_SEQUENCE):
 
-        expected_object = EXPERIMENT_SEQUENCE[current_step]
+        expected_object = (
+            EXPERIMENT_SEQUENCE[current_step]
+        )
 
         cv2.putText(
             frame,
@@ -224,9 +296,9 @@ while True:
         )
 
 
-    # =========================
-    # Check object interaction
-    # =========================
+    # _____________________________________________________________________________________________________________________
+    # Object interaction
+    # _____________________________________________________________________________________________________________________
 
     for result in results:
 
@@ -257,15 +329,13 @@ while True:
 
             object_name = model.names[class_id]
 
-
-            # Completely ignore person
             if object_name == "person":
                 continue
 
 
-            # =========================
+            # _____________________________________________________________________________________________________________________
             # Draw detected object
-            # =========================
+            # _____________________________________________________________________________________________________________________
 
             cv2.rectangle(
                 frame,
@@ -286,9 +356,9 @@ while True:
             )
 
 
-            # =========================
-            # Check hand-object interaction
-            # =========================
+            # _____________________________________________________________________________________________________________________
+            # Hand-object interaction
+            # _____________________________________________________________________________________________________________________
 
             interacting = False
 
@@ -304,9 +374,9 @@ while True:
                     break
 
 
-            # =========================
+            # _____________________________________________________________________________________________________________________
             # Temporal confirmation
-            # =========================
+            # _____________________________________________________________________________________________________________________
 
             if object_name not in interaction_frames:
 
@@ -322,9 +392,9 @@ while True:
                 interaction_frames[object_name] = 0
 
 
-            # =========================
+            # _____________________________________________________________________________________________________________________
             # Confirm interaction
-            # =========================
+            # _____________________________________________________________________________________________________________________
 
             if interaction_frames[object_name] >= 3:
 
@@ -339,9 +409,9 @@ while True:
                 )
 
 
-                # =========================
+                # _____________________________________________________________________________________________________________________
                 # Sequence validation
-                # =========================
+                # _____________________________________________________________________________________________________________________
 
                 if expected_object == object_name:
 
@@ -356,7 +426,11 @@ while True:
                     )
 
                     log_event(
-                        f"STEP {current_step + 1} PASS | {object_name} interacted"
+                        current_step + 1,
+                        expected_object,
+                        object_name,
+                        "INTERACTION",
+                        "PASS"
                     )
                     
                     # voice_alert(
@@ -365,11 +439,9 @@ while True:
 
                     current_step += 1
 
-                    # Reset interaction counter
-                    # so the same interaction
-                    # doesn't repeatedly advance
-
-                    interaction_frames[object_name] = 0
+                    interaction_frames[
+                        object_name
+                    ] = 0
 
                 else:
 
@@ -384,39 +456,32 @@ while True:
                     )
 
                     log_event(
-                        f"DEVIATION | Expected {expected_object}, detected {object_name}"
+                        current_step + 1,
+                        expected_object,
+                        object_name,
+                        "INTERACTION",
+                        "DEVIATION"
                     )
-                    
-                    voice_alert(
-                        f"Procedure deviation. Expected {expected_object}"
-                    )
-                    
-                    interaction_frames[object_name] = 0
 
+                    
+                    # voice_alert(
+                    #     f"Procedure deviation. Expected {expected_object}"
+                    # )
+                    
+                    interaction_frames[
+                        object_name
+                    ] = 0
 
-    # =========================
-    # Display
-    # =========================
 
     cv2.imshow(
-        "ASTRA-HAR Prototype",
+        "Code Nova Prototype",
         frame
     )
-
-
-    # =========================
-    # Quit
-    # =========================
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-
-# =========================
-# Cleanup
-# =========================
-
-cap.release()
+camera.release()
 cv2.destroyAllWindows()
 hands.close()
-log_file.close()
+pose.close()

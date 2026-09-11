@@ -14,7 +14,7 @@ pose = mp_pose.Pose()
 # Choose video
 VIDEO = "./data/crazy.mp4"
 
-camera = cv2.VideoCapture(VIDEO)
+camera = cv2.Videocapture(VIDEO)
 
 if not camera.isOpened():
     print("ERROR: Could not open video")

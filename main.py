@@ -39,8 +39,8 @@ pose = mp_pose.Pose()
 ACTIVITY = input("Enter activity: ").strip().upper()
 
 # Open video
-# camera = cv2.VideoCapture(0)
-camera = cv2.VideoCapture(1)
+# camera = cv2.Videocapture(0)
+camera = cv2.Videocapture(1)
 
 # Create CSV file
 

@@ -18,12 +18,12 @@ hands = mp_hands.Hands(
 )
 
 # Use the same camera index that worked for your phone
-cap = cv2.VideoCapture(0)
+camera = cv2.Videocapture(0)
 
 interaction_frames = {}
 
 while True:
-    ret, frame = cap.read()
+    ret, frame = camera.read()
 
     if not ret:
         print("Failed to read camera")
@@ -141,6 +141,6 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-cap.release()
+camera.release()
 cv2.destroyAllWindows()
 hands.close()

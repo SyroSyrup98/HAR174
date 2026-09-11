@@ -3,10 +3,10 @@ import cv2
 
 model = YOLO("yolo11n.pt")
 
-cap = cv2.VideoCapture(1)
+camera = cv2.Videocapture(1)
 
 while True:
-    ret, frame = cap.read()
+    ret, frame = camera.read()
 
     if not ret:
         print("Failed to read camera")
@@ -20,5 +20,5 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-cap.release()
+camera.release()
 cv2.destroyAllWindows()
