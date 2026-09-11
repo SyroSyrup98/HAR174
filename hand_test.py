@@ -39,3 +39,5 @@ while True:
 cap.release()
 cv2.destroyAllWindows()
 hands.close()
+
+print("hello")
