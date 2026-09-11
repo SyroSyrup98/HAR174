@@ -2,6 +2,12 @@ data/
 Notes
 *.csv
 *.txt
-*.json
 *.pt
 *.mp4
+
+node_modules/
+build/
+dist/
+
+.vscode/
+.idea/

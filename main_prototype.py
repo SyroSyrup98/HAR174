@@ -29,7 +29,7 @@ mp_draw = mp.solutions.drawing_utils
 EXPERIMENT_SEQUENCE = [
     "bottle",
     "book",
-    "cup"
+    "mouse"
 ]
 
 current_step = 0
@@ -406,11 +406,10 @@ while True:
 
 
                 pickup_detected = (
-                    interaction_frames[object_name] >= 3
-                    and
-                    motion > 5
-                    and
-                    not pickup_state[object_name]
+                    confidence >= 0.7
+                    and interaction_frames[object_name] >= 3
+                    and motion > 15
+                    and not pickup_state[object_name]
                 )
 
 
