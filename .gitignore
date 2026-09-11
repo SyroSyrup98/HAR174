@@ -1,5 +1,7 @@
 data/
-experiment_log.txt
 Notes
-landmarks.csv
-requirements.txt
+*.csv
+*.txt
+*.json
+*.pt
+*.mp4
