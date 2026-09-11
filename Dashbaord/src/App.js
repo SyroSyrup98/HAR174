@@ -1,37 +1,50 @@
 import React, { useEffect, useState } from "react";
 import Dashboard from "./components/Dashboard";
 
+const DEFAULT_STATUS = {
+  step: 1,
+  total: 3,
+  expected: "bottle",
+  object: "none",
+  confidence: 0,
+  hand: "NOT DETECTED",
+  interaction: "NO",
+  motion: 0,
+  event: "WAITING",
+  state: "WAITING",
+  camera: true,
+  ai: true,
+  updated: new Date(),
+};
+
 export default function App() {
-  const [status, setStatus] = useState({
-    step: 1,
-    total: 3,
-    expected: "bottle",
-    object: "bottle",
-    confidence: 0.94,
-    hand: "DETECTED",
-    interaction: "YES",
-    motion: 18.4,
-    event: "PICK_UP",
-    state: "PASS",
-    camera: true,
-    ai: true,
-    updated: new Date()
-  });
+  const [status, setStatus] = useState(DEFAULT_STATUS);
 
-  const [events, setEvents] = useState([
-    { time: "15:32:01", event: "PICK_UP", object: "BOTTLE", status: "PASS" },
-    { time: "15:32:08", event: "PICK_UP", object: "CUP", status: "DEVIATION" },
-    { time: "15:32:14", event: "PICK_UP", object: "BOOK", status: "PASS" }
-  ]);
+  const [events] = useState([]);
 
-  // Ready for the Python engine:
-  // If a Flask/FastAPI backend is added later, expose GET /api/status
-  // and replace this demo state with fetch("/api/status").
   useEffect(() => {
-    const timer = setInterval(() => {
-      setStatus(s => ({ ...s, updated: new Date() }));
-    }, 1000);
-    return () => clearInterval(timer);
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/status");
+
+        const data = await response.json();
+
+        setStatus({
+          ...data,
+          camera: true,
+          ai: true,
+          updated: new Date(),
+        });
+      } catch (error) {
+        console.log("AI server not connected");
+      }
+    };
+
+    fetchStatus();
+
+    const interval = setInterval(fetchStatus, 500);
+
+    return () => clearInterval(interval);
   }, []);
 
   return <Dashboard status={status} events={events} />;
