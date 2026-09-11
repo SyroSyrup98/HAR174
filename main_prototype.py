@@ -1,20 +1,13 @@
-from ultralytics import YOLO
 import cv2
-import mediapipe as mp
-# import pyttsx3
-from datetime import datetime
 import csv
 import os
+import datetime
+from ultralytics import YOLO
+import mediapipe as mp
 
 model = YOLO("yolo26n.pt")
 
-# _____________________________________________________________________________________________________________________
-# MediaPipe Hands
-# _____________________________________________________________________________________________________________________
-
 mp_hands = mp.solutions.hands
-mp_draw = mp.solutions.drawing_utils
-
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
@@ -22,105 +15,16 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-# _____________________________________________________________________________________________________________________
-# Voice Alert
-# _____________________________________________________________________________________________________________________
-
-# engine = pyttsx3.init()
-
-# voices = engine.getProperty("voices")
-
-# # Microsoft Zira
-# engine.setProperty("voice", voices[1].id)
-
-# engine.setProperty("rate", 165)
-# engine.setProperty("volume", 1.0)
-
-
-# def voice_alert(message):
-
-#     engine.say(message)
-#     engine.runAndWait()
-
-
-# _____________________________________________________________________________________________________________________
-# MEDIAPIPE FULL BODY POSE
-# _____________________________________________________________________________________________________________________
-
 mp_pose = mp.solutions.pose
-
 pose = mp_pose.Pose(
     static_image_mode=False,
     model_complexity=0,
     smooth_landmarks=True,
-    enable_segmentation=False,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
 
-# _____________________________________________________________________________________________________________________
-# Event Log
-# _____________________________________________________________________________________________________________________
-
-LOG_FILE = "experiment_log.csv"
-
-if not os.path.exists(LOG_FILE):
-    with open(
-        LOG_FILE,
-        "w",
-        newline="",
-        encoding="utf-8"
-    ) as file:
-        writer = csv.writer(file)
-
-        writer.writerow([
-            "timestamp",
-            "step",
-            "expected",
-            "detected",
-            "event",
-            "status"
-        ])
-    
-def log_event(
-    step,
-    expected,
-    detected,
-    event,
-    status
-):
-
-    timestamp = datetime.now().strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    with open(
-        LOG_FILE,
-        "a",
-        newline="",
-        encoding="utf-8"
-    ) as file:
-
-        writer = csv.writer(file)
-
-        writer.writerow([
-            timestamp,
-            step,
-            expected,
-            detected,
-            event,
-            status
-        ])
-
-    print(
-        f"[{timestamp}] "
-        f"STEP {step} | "
-        f"{event} | "
-        f"{status}"
-    )
-# _____________________________________________________________________________________________________________________
-# Experiment Sequence
-# _____________________________________________________________________________________________________________________
+mp_draw = mp.solutions.drawing_utils
 
 EXPERIMENT_SEQUENCE = [
     "bottle",
@@ -131,6 +35,48 @@ EXPERIMENT_SEQUENCE = [
 current_step = 0
 
 interaction_frames = {}
+previous_centers = {}
+pickup_state = {}
+
+last_results = None
+frame_count = 0
+
+
+# Evengt Logs
+
+LOG_FILE = "experiment_log.csv"
+
+if not os.path.exists(LOG_FILE):
+    with open(LOG_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp",
+            "step",
+            "expected",
+            "detected",
+            "event",
+            "status"
+        ])
+
+
+def log_event(step, expected, detected, event, status):
+
+    timestamp = datetime.datetime.now().strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    with open(LOG_FILE, "a", newline="", encoding="utf-8") as f:
+
+        writer = csv.writer(f)
+
+        writer.writerow([
+            timestamp,
+            step,
+            expected,
+            detected,
+            event,
+            status
+        ])
 
 
 camera = cv2.VideoCapture(0)
@@ -138,88 +84,139 @@ camera = cv2.VideoCapture(0)
 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
+if not camera.isOpened():
+    print("ERROR: Camera could not be opened.")
+    exit()
 
-frame_count = 0
-last_results = []
-
-
-# _____________________________________________________________________________________________________________________
-# Main Loop
-# _____________________________________________________________________________________________________________________
+# Main
 
 while True:
 
-    ret, frame = camera.read()
+    success, frame = camera.read()
 
-    if not ret:
-        print("Camera error")
+    if not success:
+        print("ERROR: Could not read camera frame.")
         break
 
     frame_count += 1
 
-    # Run YOLO every 3rd frame
-    if frame_count % 3 == 0:
-        last_results = model(
+    frame = cv2.flip(frame, 1)
+
+    height, width, _ = frame.shape
+
+
+    # EXPECTED STEP
+    
+    if current_step < len(EXPERIMENT_SEQUENCE):
+
+        expected_object = EXPERIMENT_SEQUENCE[current_step]
+
+    else:
+
+        expected_object = "DONE"
+
+
+    # HEADER
+    
+    cv2.rectangle(
+        frame,
+        (0, 0),
+        (width, 100),
+        (40, 40, 40),
+        -1
+    )
+
+    cv2.putText(
+        frame,
+        f"STEP: {current_step + 1}/{len(EXPERIMENT_SEQUENCE)}",
+        (20, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255, 255, 255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"EXPECTED: {expected_object.upper()}",
+        (20, 60),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0, 255, 255),
+        2
+    )
+
+
+    # EXPERIMENT COMPLETE
+    
+    if current_step >= len(EXPERIMENT_SEQUENCE):
+
+        cv2.putText(
             frame,
-            verbose=False
+            "EXPERIMENT COMPLETE",
+            (20, 90),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 255, 0),
+            2
         )
 
-    results = last_results
 
-    rgb = cv2.cvtColor(
+    # YOLO Object detection
+    
+    if frame_count % 3 == 0:
+
+        results = model(
+            frame,
+            verbose=False,
+            conf=0.5
+        )
+
+        last_results = results
+
+
+    # HAND DETECTION
+    
+    rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
-    # _____________________________________________________________________________________________________________________
-    # MediaPipe hand detection
-    # _____________________________________________________________________________________________________________________
-
-    hand_results = hands.process(rgb)
+    hand_results = hands.process(rgb_frame)
 
     hand_points = []
 
     if hand_results.multi_hand_landmarks:
 
-        for hand in hand_results.multi_hand_landmarks:
+        for hand_landmarks in hand_results.multi_hand_landmarks:
 
+            # Draw hand skeleton
             mp_draw.draw_landmarks(
                 frame,
-                hand,
+                hand_landmarks,
                 mp_hands.HAND_CONNECTIONS
             )
 
-            h, w, _ = frame.shape
+            # Index finger tip = landmark 8
+            fingertip = hand_landmarks.landmark[8]
 
-            # Index fingertip
-            fingertip = hand.landmark[8]
+            hx = int(fingertip.x * width)
+            hy = int(fingertip.y * height)
 
-            hx = int(
-                fingertip.x * w
-            )
-
-            hy = int(
-                fingertip.y * h
-            )
-
-            hand_points.append(
-                (hx, hy)
-            )
+            hand_points.append((hx, hy))
 
             cv2.circle(
                 frame,
                 (hx, hy),
-                8,
+                7,
                 (255, 0, 255),
                 -1
             )
 
-    # _____________________________________________________________________________________________________________________
-    # FULL BODY POSE
-    # _____________________________________________________________________________________________________________________
 
-    pose_results = pose.process(rgb)
-
+    # BODY POSE
+    
+    pose_results = pose.process(rgb_frame)
 
     if pose_results.pose_landmarks:
 
@@ -231,11 +228,11 @@ while True:
 
         cv2.putText(
             frame,
-            "BODY POSE: DETECTED",
-            (30, 185),
+            "POSE: DETECTED",
+            (width - 210, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
-            (255, 255, 255),
+            0.55,
+            (0, 255, 0),
             2
         )
 
@@ -243,245 +240,307 @@ while True:
 
         cv2.putText(
             frame,
-            "BODY POSE: NOT DETECTED",
-            (30, 185),
+            "POSE: NOT DETECTED",
+            (width - 250, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
+            0.55,
             (0, 0, 255),
             2
         )
 
-    # _____________________________________________________________________________________________________________________
-    # Current experiment step
-    # _____________________________________________________________________________________________________________________
+
+    # PROCESS OBJECT DETECTIONS
+    
+    if last_results is not None:
+
+        for result in last_results:
+
+            boxes = result.boxes
+
+            for box in boxes:
+
+                confidence = float(box.conf[0])
+
+                if confidence < 0.6:
+                    continue
+
+                class_id = int(box.cls[0])
+
+                object_name = model.names[class_id]
+
+                if object_name == "person":
+                    continue
+
+
+                # BOUNDING BOX
+                
+                x1, y1, x2, y2 = map(
+                    int,
+                    box.xyxy[0]
+                )
+
+                cv2.rectangle(
+                    frame,
+                    (x1, y1),
+                    (x2, y2),
+                    (255, 200, 0),
+                    2
+                )
+
+                cv2.putText(
+                    frame,
+                    f"{object_name} {confidence:.2f}",
+                    (x1, max(20, y1 - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (255, 200, 0),
+                    2
+                )
+
+
+                # OBJECT CENTER
+                
+                cx = (x1 + x2) // 2
+                cy = (y1 + y2) // 2
+
+                cv2.circle(
+                    frame,
+                    (cx, cy),
+                    5,
+                    (255, 255, 255),
+                    -1
+                )
+
+
+                # OBJECT MOVEMENT
+                
+                motion = 0
+
+                if object_name in previous_centers:
+
+                    prev_cx, prev_cy = previous_centers[
+                        object_name
+                    ]
+
+                    motion = (
+                        (cx - prev_cx) ** 2 +
+                        (cy - prev_cy) ** 2
+                    ) ** 0.5
+
+                previous_centers[object_name] = (cx, cy)
+
+
+                cv2.putText(
+                    frame,
+                    f"MOTION: {motion:.1f}",
+                    (x1, y2 + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (255, 255, 255),
+                    1
+                )
+
+
+                # INTERACTION
+                
+                interacting = False
+
+                for hx, hy in hand_points:
+
+                    if (
+                        x1 - 40 <= hx <= x2 + 40
+                        and
+                        y1 - 40 <= hy <= y2 + 40
+                    ):
+
+                        interacting = True
+
+                        cv2.line(
+                            frame,
+                            (hx, hy),
+                            (cx, cy),
+                            (255, 0, 255),
+                            2
+                        )
+
+                        break
+
+
+                if object_name not in interaction_frames:
+
+                    interaction_frames[object_name] = 0
+
+
+                if interacting:
+
+                    interaction_frames[object_name] += 1
+
+                else:
+
+                    interaction_frames[object_name] = max(
+                        0,
+                        interaction_frames[object_name] - 1
+                    )
+
+
+                # SHOW INTERACTION
+
+                if interaction_frames[object_name] >= 3:
+
+                    cv2.putText(
+                        frame,
+                        f"HAND INTERACTION: {object_name}",
+                        (20, 125),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.65,
+                        (255, 0, 255),
+                        2
+                    )
+
+
+                # PICK-UP DETECTION
+                
+                if object_name not in pickup_state:
+
+                    pickup_state[object_name] = False
+
+
+                pickup_detected = (
+                    interaction_frames[object_name] >= 3
+                    and
+                    motion > 5
+                    and
+                    not pickup_state[object_name]
+                )
+
+
+                if pickup_detected:
+
+                    pickup_state[object_name] = True
+
+
+                    # PICK UP DISPLAY
+
+                    cv2.putText(
+                        frame,
+                        f"PICK UP: {object_name.upper()}",
+                        (20, 165),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.75,
+                        (0, 255, 0),
+                        2
+                    )
+
+
+                    # CORRECT OBJECT
+
+                    if expected_object == object_name:
+
+                        cv2.putText(
+                            frame,
+                            "STATUS: PASS",
+                            (20, 200),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.8,
+                            (0, 255, 0),
+                            2
+                        )
+
+                        log_event(
+                            current_step + 1,
+                            expected_object,
+                            object_name,
+                            "PICK_UP",
+                            "PASS"
+                        )
+
+                        current_step += 1
+
+                    # WRONG OBJECT
+                    
+                    else:
+
+                        cv2.putText(
+                            frame,
+                            "STATUS: DEVIATION",
+                            (20, 200),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.8,
+                            (0, 0, 255),
+                            2
+                        )
+
+                        log_event(
+                            current_step + 1,
+                            expected_object,
+                            object_name,
+                            "PICK_UP",
+                            "DEVIATION"
+                        )
+
+                        # Allow the same object to be tried again
+                        pickup_state[object_name] = False
+
+
+                    # RESET INTERACTION
+                    
+                    interaction_frames[object_name] = 0
+
+    # NEXT STEP DISPLAY
 
     if current_step < len(EXPERIMENT_SEQUENCE):
 
-        expected_object = (
-            EXPERIMENT_SEQUENCE[current_step]
-        )
+        next_object = EXPERIMENT_SEQUENCE[current_step]
 
         cv2.putText(
             frame,
-            f"STEP {current_step + 1}/{len(EXPERIMENT_SEQUENCE)}",
-            (30, 40),
+            f"NEXT: PICK UP {next_object.upper()}",
+            (20, height - 45),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 255, 0),
-            2
-        )
-
-        cv2.putText(
-            frame,
-            f"EXPECTED: {expected_object}",
-            (30, 75),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (255, 255, 0),
+            0.65,
+            (0, 255, 255),
             2
         )
 
     else:
 
-        expected_object = None
-
         cv2.putText(
             frame,
-            "EXPERIMENT COMPLETE",
-            (30, 40),
+            "NEXT: NONE",
+            (20, height - 45),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.65,
             (0, 255, 0),
             2
         )
 
 
-    # _____________________________________________________________________________________________________________________
-    # Object interaction
-    # _____________________________________________________________________________________________________________________
+    # CONTROLS
 
-    for result in results:
-
-        for box in result.boxes:
-
-            confidence = float(
-                box.conf[0]
-            )
-
-            # Ignore low-confidence detections
-            if confidence < 0.6:
-                continue
+    cv2.putText(
+        frame,
+        "Press Q to quit",
+        (width - 180, height - 15),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.45,
+        (200, 200, 200),
+        1
+    )
 
 
-            # Object coordinates
-
-            x1, y1, x2, y2 = map(
-                int,
-                box.xyxy[0]
-            )
-
-
-            # Object class
-
-            class_id = int(
-                box.cls[0]
-            )
-
-            object_name = model.names[class_id]
-
-            if object_name == "person":
-                continue
-
-
-            # _____________________________________________________________________________________________________________________
-            # Draw detected object
-            # _____________________________________________________________________________________________________________________
-
-            cv2.rectangle(
-                frame,
-                (x1, y1),
-                (x2, y2),
-                (0, 255, 0),
-                2
-            )
-
-            cv2.putText(
-                frame,
-                f"{object_name} {confidence:.2f}",
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2
-            )
-
-
-            # _____________________________________________________________________________________________________________________
-            # Hand-object interaction
-            # _____________________________________________________________________________________________________________________
-
-            interacting = False
-
-            for hx, hy in hand_points:
-
-                if (
-                    x1 <= hx <= x2
-                    and
-                    y1 <= hy <= y2
-                ):
-
-                    interacting = True
-                    break
-
-
-            # _____________________________________________________________________________________________________________________
-            # Temporal confirmation
-            # _____________________________________________________________________________________________________________________
-
-            if object_name not in interaction_frames:
-
-                interaction_frames[object_name] = 0
-
-
-            if interacting:
-
-                interaction_frames[object_name] += 1
-
-            else:
-
-                interaction_frames[object_name] = 0
-
-
-            # _____________________________________________________________________________________________________________________
-            # Confirm interaction
-            # _____________________________________________________________________________________________________________________
-
-            if interaction_frames[object_name] >= 3:
-
-                cv2.putText(
-                    frame,
-                    f"INTERACTION: {object_name}",
-                    (30, 110),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 0, 255),
-                    2
-                )
-
-
-                # _____________________________________________________________________________________________________________________
-                # Sequence validation
-                # _____________________________________________________________________________________________________________________
-
-                if expected_object == object_name:
-
-                    cv2.putText(
-                        frame,
-                        "STATUS: PASS",
-                        (30, 145),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
-                        (0, 255, 0),
-                        2
-                    )
-
-                    log_event(
-                        current_step + 1,
-                        expected_object,
-                        object_name,
-                        "INTERACTION",
-                        "PASS"
-                    )
-                    
-                    # voice_alert(
-                    #     f"{object_name} step completed"
-                    # )
-
-                    current_step += 1
-
-                    interaction_frames[
-                        object_name
-                    ] = 0
-
-                else:
-
-                    cv2.putText(
-                        frame,
-                        "STATUS: DEVIATION",
-                        (30, 145),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
-                        (0, 0, 255),
-                        2
-                    )
-
-                    log_event(
-                        current_step + 1,
-                        expected_object,
-                        object_name,
-                        "INTERACTION",
-                        "DEVIATION"
-                    )
-
-                    
-                    # voice_alert(
-                    #     f"Procedure deviation. Expected {expected_object}"
-                    # )
-                    
-                    interaction_frames[
-                        object_name
-                    ] = 0
-
-
+    # DISPLAY
+    
     cv2.imshow(
-        "Code Nova Prototype",
+        "AI Human Activity Recognition - BAS",
         frame
     )
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+    key = cv2.waitKey(1) & 0xFF
 
+    if key == ord("q"):
+
+        break
 camera.release()
-cv2.destroyAllWindows()
 hands.close()
 pose.close()
+cv2.destroyAllWindows()

@@ -21,6 +21,8 @@ hands = mp_hands.Hands(
 camera = cv2.Videocapture(0)
 
 interaction_frames = {}
+previous_centers = {}
+pickup_state = {}
 
 while True:
     ret, frame = camera.read()
