@@ -1,3 +1,4 @@
+import joblib
 import cv2
 import csv
 import os
@@ -6,11 +7,12 @@ from ultralytics import YOLO
 import mediapipe as mp
 
 model = YOLO("yolo26n.pt")
+gesture_model = joblib.load("gesture_model.pkl")
 
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,
+    max_num_hands=1,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
@@ -20,6 +22,7 @@ pose = mp_pose.Pose(
     static_image_mode=False,
     model_complexity=0,
     smooth_landmarks=True,
+    enable_segmentation=False,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
@@ -29,7 +32,7 @@ mp_draw = mp.solutions.drawing_utils
 EXPERIMENT_SEQUENCE = [
     "bottle",
     "book",
-    "mouse"
+    "laptop"
 ]
 
 current_step = 0
@@ -175,8 +178,8 @@ while True:
         last_results = results
 
 
-    # HAND DETECTION
-    
+    # HAND DETECTION + GESTURE RECOGNITION
+
     rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
@@ -186,32 +189,100 @@ while True:
 
     hand_points = []
 
+    gesture_name = "NONE"
+    gesture_confidence = 0.0
+
     if hand_results.multi_hand_landmarks:
 
-        for hand_landmarks in hand_results.multi_hand_landmarks:
+        # Use first detected hand
+        hand_landmarks = hand_results.multi_hand_landmarks[0]
 
-            # Draw hand skeleton
-            mp_draw.draw_landmarks(
-                frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
-            )
+        # Draw hand skeleton
+        mp_draw.draw_landmarks(
+            frame,
+            hand_landmarks,
+            mp_hands.HAND_CONNECTIONS
+        )
 
-            # Index finger tip = landmark 8
-            fingertip = hand_landmarks.landmark[8]
+        # =========================
+        # GESTURE RECOGNITION
+        # =========================
 
-            hx = int(fingertip.x * width)
-            hy = int(fingertip.y * height)
+        landmarks = []
 
-            hand_points.append((hx, hy))
+        for landmark in hand_landmarks.landmark:
+            landmarks.extend([
+                landmark.x,
+                landmark.y,
+                landmark.z
+            ])
 
-            cv2.circle(
-                frame,
-                (hx, hy),
-                7,
-                (255, 0, 255),
-                -1
-            )
+        # Predict gesture
+        gesture_name = gesture_model.predict(
+            [landmarks]
+        )[0]
+
+        # Confidence
+        probabilities = gesture_model.predict_proba(
+            [landmarks]
+        )[0]
+
+        gesture_confidence = max(probabilities) * 100
+
+        # =========================
+        # INDEX FINGER TIP
+        # =========================
+
+        fingertip = hand_landmarks.landmark[8]
+
+        hx = int(fingertip.x * width)
+        hy = int(fingertip.y * height)
+
+        hand_points.append((hx, hy))
+
+        cv2.circle(
+            frame,
+            (hx, hy),
+            7,
+            (255, 0, 255),
+            -1
+        )
+
+        # =========================
+        # DISPLAY GESTURE
+        # =========================
+
+        cv2.putText(
+            frame,
+            f"HAND SIGN: {gesture_name}",
+            (20, 150),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255, 0, 0),
+            2
+        )
+
+        cv2.putText(
+            frame,
+            f"SIGN CONFIDENCE: {gesture_confidence:.1f}%",
+            (20, 180),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 255, 255),
+            2
+        )
+
+    else:
+
+        cv2.putText(
+            frame,
+            "HAND SIGN: NONE",
+            (20, 150),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 0, 255),
+            2
+        )
 
 
     # BODY POSE
@@ -261,7 +332,7 @@ while True:
 
                 confidence = float(box.conf[0])
 
-                if confidence < 0.6:
+                if confidence < 0.5:
                     continue
 
                 class_id = int(box.cls[0])
@@ -406,9 +477,9 @@ while True:
 
 
                 pickup_detected = (
-                    confidence >= 0.7
+                    confidence >= 0.5
                     and interaction_frames[object_name] >= 3
-                    and motion > 15
+                    and motion > 5
                     and not pickup_state[object_name]
                 )
 
@@ -527,18 +598,30 @@ while True:
     )
 
 
-    # DISPLAY
+    # # DISPLAY
+    
+    # cv2.imshow(
+    #     "Experiment Window",
+    #     frame
+    # )
+
+    # key = cv2.waitKey(1) & 0xFF
+
+    # if key == ord("q"):
+    #     break
+    
+    # Show video
+    display_frame = cv2.resize(frame, (1000, 800))
     
     cv2.imshow(
-        "AI Human Activity Recognition - BAS",
-        frame
+    "Landmark Extraction",
+    display_frame
     )
 
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord("q"):
-
+    # Press Q to quit
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
+
 camera.release()
 hands.close()
 pose.close()
